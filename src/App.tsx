@@ -348,6 +348,24 @@ function App() {
 						to the resolver contract.
 					</p>
 					<p>
+						<strong>GitHub:</strong>{" "}
+						<a
+							href="https://github.com/stephancill/eth-config-resolver"
+							target="_blank"
+							rel="noopener noreferrer"
+						>
+							resolver
+						</a>
+						{" | "}
+						<a
+							href="https://github.com/stephancill/ethconfig-client"
+							target="_blank"
+							rel="noopener noreferrer"
+						>
+							client
+						</a>
+					</p>
+					<p>
 						<strong>Resolver:</strong>{" "}
 						<a
 							href={`https://${chainId === sepolia.id ? "sepolia." : ""}etherscan.io/address/${resolver}`}
