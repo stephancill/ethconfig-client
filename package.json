@@ -1,0 +1,29 @@
+{
+	"name": "eth-config-client",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "vite",
+		"build": "tsc && vite build",
+		"preview": "vite preview",
+		"lint": "biome check .",
+		"lint:fix": "biome check --write ."
+	},
+	"dependencies": {
+		"@tanstack/react-query": "latest",
+		"buffer": "^6.0.3",
+		"react": "latest",
+		"react-dom": "latest",
+		"viem": "latest",
+		"wagmi": "latest"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.3.8",
+		"@types/react": "latest",
+		"@types/react-dom": "latest",
+		"@vitejs/plugin-react": "latest",
+		"@wagmi/cli": "latest",
+		"typescript": "latest",
+		"vite": "latest"
+	}
+}
