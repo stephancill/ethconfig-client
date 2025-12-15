@@ -56,6 +56,40 @@ const resolverAbi = [
 	},
 ] as const;
 
+const AlphaBanner = () => (
+	<div
+		style={{
+			background: "linear-gradient(90deg, #f59e0b, #d97706)",
+			color: "#000",
+			padding: "0.75rem 1rem",
+			textAlign: "center",
+			fontWeight: 500,
+			fontSize: "0.9rem",
+			marginBottom: "1rem",
+		}}
+	>
+		⚠️ Alpha version – Contact{" "}
+		<a
+			href="https://x.com/stephancill"
+			target="_blank"
+			rel="noopener noreferrer"
+			style={{ color: "#000", textDecoration: "underline" }}
+		>
+			@stephancill on X
+		</a>{" "}
+		or{" "}
+		<a
+			href="https://farcaster.xyz/stephancill"
+			target="_blank"
+			rel="noopener noreferrer"
+			style={{ color: "#000", textDecoration: "underline" }}
+		>
+			Farcaster
+		</a>{" "}
+		if you're interested in building on this standard
+	</div>
+);
+
 function App() {
 	const { address, isConnected, chainId } = useAccount();
 	const { connect } = useConnect();
@@ -134,195 +168,204 @@ function App() {
 
 	if (!isConnected) {
 		return (
-			<div>
-				<h1>eth-config</h1>
-				<p>Connect wallet to manage your ETH config</p>
-				{connectors.map((connector) => (
-					<button
-						type="button"
-						key={connector.uid}
-						onClick={() => connect({ connector })}
-					>
-						{connector.name}
-					</button>
-				))}
-			</div>
+			<>
+				<AlphaBanner />
+				<div>
+					<h1>eth-config</h1>
+					<p>Connect wallet to manage your ETH config</p>
+					{connectors.map((connector) => (
+						<button
+							type="button"
+							key={connector.uid}
+							onClick={() => connect({ connector })}
+						>
+							{connector.name}
+						</button>
+					))}
+				</div>
+			</>
 		);
 	}
 
 	if (!isSupported) {
 		return (
-			<div>
-				<h1>ETH Config</h1>
-				<p>
-					<strong>Address:</strong> {address}
-				</p>
-				<p>
-					<strong>Chain:</strong> {chainId} (not supported)
-				</p>
-				<p>Please switch to a supported network:</p>
-				<div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
-					<button
-						type="button"
-						onClick={() => switchChain({ chainId: mainnet.id })}
-					>
-						Switch to Mainnet
-					</button>
-					<button
-						type="button"
-						onClick={() => switchChain({ chainId: sepolia.id })}
-					>
-						Switch to Sepolia
-					</button>
-				</div>
-				<button type="button" onClick={() => disconnect()}>
-					Disconnect
-				</button>
-			</div>
-		);
-	}
-
-	return (
-		<div
-			style={{
-				display: "flex",
-				flexDirection: "row",
-				gap: "2rem",
-				flexWrap: "wrap",
-			}}
-		>
-			<div style={{ flex: "1 1 300px" }}>
-				<h1>ETH Config</h1>
-
+			<>
+				<AlphaBanner />
 				<div>
+					<h1>ETH Config</h1>
 					<p>
 						<strong>Address:</strong> {address}
 					</p>
 					<p>
-						<strong>Chain:</strong>{" "}
-						{chainId === mainnet.id ? "Mainnet" : "Sepolia"}
+						<strong>Chain:</strong> {chainId} (not supported)
 					</p>
-					<div style={{ display: "flex", gap: "0.5rem" }}>
+					<p>Please switch to a supported network:</p>
+					<div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
 						<button
 							type="button"
-							onClick={() =>
-								switchChain({
-									chainId: chainId === mainnet.id ? sepolia.id : mainnet.id,
-								})
-							}
+							onClick={() => switchChain({ chainId: mainnet.id })}
 						>
-							Switch to {chainId === mainnet.id ? "Sepolia" : "Mainnet"}
+							Switch to Mainnet
 						</button>
-						<button type="button" onClick={() => disconnect()}>
-							Disconnect
+						<button
+							type="button"
+							onClick={() => switchChain({ chainId: sepolia.id })}
+						>
+							Switch to Sepolia
 						</button>
 					</div>
+					<button type="button" onClick={() => disconnect()}>
+						Disconnect
+					</button>
 				</div>
+			</>
+		);
+	}
 
-				<hr />
+	return (
+		<>
+			<AlphaBanner />
+			<div
+				style={{
+					display: "flex",
+					flexDirection: "row",
+					gap: "2rem",
+					flexWrap: "wrap",
+				}}
+			>
+				<div style={{ flex: "1 1 300px" }}>
+					<h1>ETH Config</h1>
 
-				<div>
-					<h2>Set Text Record</h2>
 					<div>
-						<input
-							placeholder="key (e.g. url)"
-							value={textKey}
-							onChange={(e) => setTextKey(e.target.value)}
-						/>
-						<input
-							placeholder="value"
-							value={textValue}
-							onChange={(e) => setTextValue(e.target.value)}
-						/>
-						<button
-							type="button"
-							onClick={handleSetText}
-							disabled={isSettingText || isSetTextConfirming}
-						>
-							{isSettingText
-								? "Confirming..."
-								: isSetTextConfirming
-									? "Waiting..."
-									: "Set"}
-						</button>
-						{isSetTextConfirmed && <p>Set! ✓</p>}
-					</div>
-				</div>
-
-				<hr />
-
-				<div>
-					<h2>Read Text Record</h2>
-					<div>
-						<input
-							placeholder={address}
-							value={readAddress}
-							onChange={(e) => setReadAddress(e.target.value)}
-						/>
-						<input
-							placeholder="key (e.g. url)"
-							value={readKey}
-							onChange={(e) => setReadKey(e.target.value)}
-						/>
-						<button
-							type="button"
-							onClick={() =>
-								setSubmittedRead({
-									address: (readAddress || address) as `0x${string}`,
-									key: readKey,
-								})
-							}
-						>
-							Read
-						</button>
-					</div>
-					{submittedRead && (
 						<p>
-							<strong>{submittedRead.key}:</strong> {textRecord || "(empty)"}
+							<strong>Address:</strong> {address}
 						</p>
-					)}
+						<p>
+							<strong>Chain:</strong>{" "}
+							{chainId === mainnet.id ? "Mainnet" : "Sepolia"}
+						</p>
+						<div style={{ display: "flex", gap: "0.5rem" }}>
+							<button
+								type="button"
+								onClick={() =>
+									switchChain({
+										chainId: chainId === mainnet.id ? sepolia.id : mainnet.id,
+									})
+								}
+							>
+								Switch to {chainId === mainnet.id ? "Sepolia" : "Mainnet"}
+							</button>
+							<button type="button" onClick={() => disconnect()}>
+								Disconnect
+							</button>
+						</div>
+					</div>
+
+					<hr />
+
+					<div>
+						<h2>Set Text Record</h2>
+						<div>
+							<input
+								placeholder="key (e.g. url)"
+								value={textKey}
+								onChange={(e) => setTextKey(e.target.value)}
+							/>
+							<input
+								placeholder="value"
+								value={textValue}
+								onChange={(e) => setTextValue(e.target.value)}
+							/>
+							<button
+								type="button"
+								onClick={handleSetText}
+								disabled={isSettingText || isSetTextConfirming}
+							>
+								{isSettingText
+									? "Confirming..."
+									: isSetTextConfirming
+										? "Waiting..."
+										: "Set"}
+							</button>
+							{isSetTextConfirmed && <p>Set! ✓</p>}
+						</div>
+					</div>
+
+					<hr />
+
+					<div>
+						<h2>Read Text Record</h2>
+						<div>
+							<input
+								placeholder={address}
+								value={readAddress}
+								onChange={(e) => setReadAddress(e.target.value)}
+							/>
+							<input
+								placeholder="key (e.g. url)"
+								value={readKey}
+								onChange={(e) => setReadKey(e.target.value)}
+							/>
+							<button
+								type="button"
+								onClick={() =>
+									setSubmittedRead({
+										address: (readAddress || address) as `0x${string}`,
+										key: readKey,
+									})
+								}
+							>
+								Read
+							</button>
+						</div>
+						{submittedRead && (
+							<p>
+								<strong>{submittedRead.key}:</strong> {textRecord || "(empty)"}
+							</p>
+						)}
+					</div>
+
+					<hr />
+
+					<div>
+						<h2>Your ENS Name</h2>
+						<p>
+							<strong>{subname}</strong>
+						</p>
+						<p>
+							Your config is automatically available at this ENS name via
+							wildcard resolution. Any records you set above can be looked up by
+							other apps using this name.
+						</p>
+					</div>
 				</div>
 
-				<hr />
-
-				<div>
-					<h2>Your ENS Name</h2>
+				<div style={{ flex: "0 0 300px" }}>
+					<h2>Dev</h2>
 					<p>
-						<strong>{subname}</strong>
+						Contract address on {chainId === sepolia.id ? "Sepolia" : "Mainnet"}
+						. Your app can integrate ETH config by reading and writing records
+						to the resolver contract.
 					</p>
 					<p>
-						Your config is automatically available at this ENS name via wildcard
-						resolution. Any records you set above can be looked up by other apps
-						using this name.
+						<strong>Resolver:</strong>{" "}
+						<a
+							href={`https://${chainId === sepolia.id ? "sepolia." : ""}etherscan.io/address/${resolver}`}
+							target="_blank"
+							rel="noopener noreferrer"
+						>
+							{resolver}
+						</a>
 					</p>
+					<p>
+						<strong>ABI:</strong>
+					</p>
+					<pre style={{ overflow: "auto", fontSize: "12px" }}>
+						{JSON.stringify(resolverAbi, null, 2)}
+					</pre>
 				</div>
 			</div>
-
-			<div style={{ flex: "0 0 300px" }}>
-				<h2>Dev</h2>
-				<p>
-					Contract address on {chainId === sepolia.id ? "Sepolia" : "Mainnet"}.
-					Your app can integrate ETH config by reading and writing records to
-					the resolver contract.
-				</p>
-				<p>
-					<strong>Resolver:</strong>{" "}
-					<a
-						href={`https://${chainId === sepolia.id ? "sepolia." : ""}etherscan.io/address/${resolver}`}
-						target="_blank"
-						rel="noopener noreferrer"
-					>
-						{resolver}
-					</a>
-				</p>
-				<p>
-					<strong>ABI:</strong>
-				</p>
-				<pre style={{ overflow: "auto", fontSize: "12px" }}>
-					{JSON.stringify(resolverAbi, null, 2)}
-				</pre>
-			</div>
-		</div>
+		</>
 	);
 }
 
