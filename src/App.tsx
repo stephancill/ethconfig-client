@@ -1,4 +1,7 @@
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { type Address, createPublicClient, http } from "viem";
+import { normalize } from "viem/ens";
 import {
 	useAccount,
 	useConnect,
@@ -9,23 +12,30 @@ import {
 	useWaitForTransactionReceipt,
 	useWriteContract,
 } from "wagmi";
-import { mainnet, sepolia } from "wagmi/chains";
+import { baseSepolia, sepolia } from "wagmi/chains";
 
-// Config from environment - per chain (validated at build time in vite.config.ts)
-const config = {
-	[mainnet.id]: {
-		registrar: import.meta.env.VITE_MAINNET_REGISTRAR as `0x${string}`,
-		resolver: import.meta.env.VITE_MAINNET_RESOLVER as `0x${string}`,
-		parentName: import.meta.env.VITE_MAINNET_PARENT_NAME as string,
-	},
-	[sepolia.id]: {
-		registrar: import.meta.env.VITE_SEPOLIA_REGISTRAR as `0x${string}`,
-		resolver: import.meta.env.VITE_SEPOLIA_RESOLVER as `0x${string}`,
-		parentName: import.meta.env.VITE_SEPOLIA_PARENT_NAME as string,
-	},
-} as const;
+// Config from environment
+const PARENT_NAME = import.meta.env.VITE_PARENT_NAME as string;
 
-const resolverAbi = [
+// ABIs
+const l1ConfigResolverAbi = [
+	{
+		name: "l2ChainId",
+		type: "function",
+		stateMutability: "view",
+		inputs: [],
+		outputs: [{ type: "uint256" }],
+	},
+	{
+		name: "l2ConfigResolver",
+		type: "function",
+		stateMutability: "view",
+		inputs: [],
+		outputs: [{ type: "address" }],
+	},
+] as const;
+
+const configResolverAbi = [
 	{
 		name: "reverseNode",
 		type: "function",
@@ -56,6 +66,12 @@ const resolverAbi = [
 	},
 ] as const;
 
+// Public client for ENS resolution on mainnet
+const testnetClient = createPublicClient({
+	chain: sepolia,
+	transport: http(),
+});
+
 const AlphaBanner = () => (
 	<div
 		style={{
@@ -68,7 +84,7 @@ const AlphaBanner = () => (
 			marginBottom: "1rem",
 		}}
 	>
-		⚠️ Alpha version – Contact{" "}
+		⚠️ Alpha version (Testnet only) – Contact{" "}
 		<a
 			href="https://x.com/stephancill"
 			target="_blank"
@@ -97,73 +113,134 @@ function App() {
 	const { disconnect } = useDisconnect();
 	const { switchChain } = useSwitchChain();
 
+	// Form state
 	const [textKey, setTextKey] = useState("url");
 	const [textValue, setTextValue] = useState("");
 	const [readKey, setReadKey] = useState("url");
 	const [readAddress, setReadAddress] = useState("");
 	const [submittedRead, setSubmittedRead] = useState<{
-		address: `0x${string}`;
+		address: Address;
 		key: string;
 	} | null>(null);
 
-	// Get config for current chain
-	const chainConfig = chainId ? config[chainId as keyof typeof config] : null;
-	const resolver = chainConfig?.resolver;
-	const parentName = chainConfig?.parentName;
-	const isSupported = !!chainConfig;
+	// ENS resolution state
+	const [ensName, setEnsName] = useState("");
+	const [ensKey, setEnsKey] = useState("url");
+	const [ensResult, setEnsResult] = useState<string | null>(null);
+	const [ensLoading, setEnsLoading] = useState(false);
+	const [ensError, setEnsError] = useState<string | null>(null);
+
+	// Get L1ConfigResolver address from ENS
+	const { data: l1ConfigResolver, isLoading: isLoadingResolver } = useQuery({
+		queryKey: ["ensResolver", PARENT_NAME],
+		queryFn: async () => {
+			if (!PARENT_NAME) return null;
+			const resolver = await testnetClient.getEnsResolver({
+				name: normalize(PARENT_NAME),
+			});
+			return resolver;
+		},
+		enabled: !!PARENT_NAME,
+		staleTime: 1000 * 60 * 5, // Cache for 5 minutes
+	});
+
+	// Read L2 config from L1ConfigResolver (on Sepolia)
+	const { data: l2ChainId } = useReadContract({
+		address: l1ConfigResolver as Address | undefined,
+		abi: l1ConfigResolverAbi,
+		functionName: "l2ChainId",
+		chainId: sepolia.id,
+		query: { enabled: !!l1ConfigResolver },
+	});
+
+	const { data: l2ConfigResolver } = useReadContract({
+		address: l1ConfigResolver as Address | undefined,
+		abi: l1ConfigResolverAbi,
+		functionName: "l2ConfigResolver",
+		chainId: sepolia.id,
+		query: { enabled: !!l1ConfigResolver },
+	});
+
+	// Determine if we're on the correct L2 chain
+	const isOnL2 = chainId === baseSepolia.id;
 
 	// Compute subname from address
-	const subname =
-		address && parentName
-			? `${address.slice(2).toLowerCase()}.${parentName}`
-			: null;
+	const subname = address && PARENT_NAME ? `${address}.${PARENT_NAME}` : null;
 
-	// Get user's reverse node (for authorization)
+	// Get user's reverse node on L2 (for authorization)
 	const { data: userNode } = useReadContract({
-		address: resolver,
-		abi: resolverAbi,
+		address: l2ConfigResolver,
+		abi: configResolverAbi,
 		functionName: "reverseNode",
 		args: address ? [address] : undefined,
-		query: { enabled: !!address && isSupported },
+		chainId: baseSepolia.id,
+		query: { enabled: !!address && !!l2ConfigResolver },
 	});
 
-	// Get reverse node for submitted read address
+	// Get reverse node for submitted read address on L2
 	const { data: readNode } = useReadContract({
-		address: resolver,
-		abi: resolverAbi,
+		address: l2ConfigResolver,
+		abi: configResolverAbi,
 		functionName: "reverseNode",
 		args: submittedRead ? [submittedRead.address] : undefined,
-		query: { enabled: !!submittedRead && isSupported },
+		chainId: baseSepolia.id,
+		query: { enabled: !!submittedRead && !!l2ConfigResolver },
 	});
 
-	// Read text record (only when submitted)
-	const { data: textRecord } = useReadContract({
-		address: resolver,
-		abi: resolverAbi,
+	// Read text record from L2 ConfigResolver
+	const { data: textRecord, refetch: refetchTextRecord } = useReadContract({
+		address: l2ConfigResolver,
+		abi: configResolverAbi,
 		functionName: "text",
 		args: readNode && submittedRead ? [readNode, submittedRead.key] : undefined,
-		query: { enabled: !!readNode && !!submittedRead && isSupported },
+		chainId: baseSepolia.id,
+		query: { enabled: !!readNode && !!submittedRead && !!l2ConfigResolver },
 	});
 
-	// Set text
+	// Set text on L2 ConfigResolver
 	const {
 		writeContract: setText,
 		data: setTextHash,
 		isPending: isSettingText,
+		error: setTextError,
 	} = useWriteContract();
+
 	const { isLoading: isSetTextConfirming, isSuccess: isSetTextConfirmed } =
 		useWaitForTransactionReceipt({
 			hash: setTextHash,
 		});
 
 	const handleSetText = () => {
-		if (!userNode || !resolver) return;
+		if (!userNode || !l2ConfigResolver) return;
 		setText({
-			address: resolver,
-			abi: resolverAbi,
+			address: l2ConfigResolver,
+			abi: configResolverAbi,
 			functionName: "setText",
 			args: [userNode, textKey, textValue],
+			chainId: baseSepolia.id,
 		});
+	};
+
+	// ENS resolution using viem
+	const handleEnsLookup = async () => {
+		if (!ensName) return;
+		setEnsLoading(true);
+		setEnsError(null);
+		setEnsResult(null);
+
+		try {
+			const normalizedName = normalize(ensName);
+			const result = await testnetClient.getEnsText({
+				name: normalizedName,
+				key: ensKey,
+			});
+			console.log("result", result);
+			setEnsResult(result);
+		} catch (err) {
+			setEnsError(err instanceof Error ? err.message : "Failed to resolve ENS");
+		} finally {
+			setEnsLoading(false);
+		}
 	};
 
 	if (!isConnected) {
@@ -172,7 +249,7 @@ function App() {
 				<AlphaBanner />
 				<div>
 					<h1>eth-config</h1>
-					<p>Connect wallet to manage your ETH config</p>
+					<p>Connect wallet to manage your ETH config on testnet</p>
 					{connectors.map((connector) => (
 						<button
 							type="button"
@@ -182,41 +259,6 @@ function App() {
 							{connector.name}
 						</button>
 					))}
-				</div>
-			</>
-		);
-	}
-
-	if (!isSupported) {
-		return (
-			<>
-				<AlphaBanner />
-				<div>
-					<h1>ETH Config</h1>
-					<p>
-						<strong>Address:</strong> {address}
-					</p>
-					<p>
-						<strong>Chain:</strong> {chainId} (not supported)
-					</p>
-					<p>Please switch to a supported network:</p>
-					<div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
-						<button
-							type="button"
-							onClick={() => switchChain({ chainId: mainnet.id })}
-						>
-							Switch to Mainnet
-						</button>
-						<button
-							type="button"
-							onClick={() => switchChain({ chainId: sepolia.id })}
-						>
-							Switch to Sepolia
-						</button>
-					</div>
-					<button type="button" onClick={() => disconnect()}>
-						Disconnect
-					</button>
 				</div>
 			</>
 		);
@@ -234,7 +276,7 @@ function App() {
 				}}
 			>
 				<div style={{ flex: "1 1 300px" }}>
-					<h1>ETH Config</h1>
+					<h1>ETH Config (Testnet)</h1>
 
 					<div>
 						<p>
@@ -242,19 +284,42 @@ function App() {
 						</p>
 						<p>
 							<strong>Chain:</strong>{" "}
-							{chainId === mainnet.id ? "Mainnet" : "Sepolia"}
+							{chainId === sepolia.id
+								? "Sepolia (L1)"
+								: chainId === baseSepolia.id
+									? "Base Sepolia (L2)"
+									: `Unknown (${chainId})`}
 						</p>
-						<div style={{ display: "flex", gap: "0.5rem" }}>
-							<button
-								type="button"
-								onClick={() =>
-									switchChain({
-										chainId: chainId === mainnet.id ? sepolia.id : mainnet.id,
-									})
-								}
-							>
-								Switch to {chainId === mainnet.id ? "Sepolia" : "Mainnet"}
-							</button>
+						<p>
+							<strong>L2 Config:</strong>{" "}
+							{isLoadingResolver ? (
+								"Fetching resolver..."
+							) : l2ConfigResolver ? (
+								<>
+									Chain {l2ChainId?.toString()} at{" "}
+									<code>{l2ConfigResolver}</code>
+								</>
+							) : (
+								"Loading..."
+							)}
+						</p>
+						<div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+							{!isOnL2 && (
+								<button
+									type="button"
+									onClick={() => switchChain({ chainId: baseSepolia.id })}
+								>
+									Switch to Base Sepolia (L2)
+								</button>
+							)}
+							{isOnL2 && (
+								<button
+									type="button"
+									onClick={() => switchChain({ chainId: sepolia.id })}
+								>
+									Switch to Sepolia (L1)
+								</button>
+							)}
 							<button type="button" onClick={() => disconnect()}>
 								Disconnect
 							</button>
@@ -264,7 +329,12 @@ function App() {
 					<hr />
 
 					<div>
-						<h2>Set Text Record</h2>
+						<h2>Set Text Record (L2)</h2>
+						{!isOnL2 && (
+							<p style={{ color: "#f59e0b" }}>
+								⚠️ Switch to Base Sepolia to set records
+							</p>
+						)}
 						<div>
 							<input
 								placeholder="key (e.g. url)"
@@ -279,7 +349,7 @@ function App() {
 							<button
 								type="button"
 								onClick={handleSetText}
-								disabled={isSettingText || isSetTextConfirming}
+								disabled={!isOnL2 || isSettingText || isSetTextConfirming}
 							>
 								{isSettingText
 									? "Confirming..."
@@ -287,14 +357,22 @@ function App() {
 										? "Waiting..."
 										: "Set"}
 							</button>
-							{isSetTextConfirmed && <p>Set! ✓</p>}
+							{isSetTextConfirmed && <p style={{ color: "green" }}>Set! ✓</p>}
+							{setTextError && (
+								<p style={{ color: "red" }}>
+									Error: {setTextError.message.slice(0, 100)}
+								</p>
+							)}
 						</div>
 					</div>
 
 					<hr />
 
 					<div>
-						<h2>Read Text Record</h2>
+						<h2>Read Text Record (L2)</h2>
+						<p style={{ fontSize: "0.9rem", color: "#888" }}>
+							Reads directly from L2 ConfigResolver
+						</p>
 						<div>
 							<input
 								placeholder={address}
@@ -308,12 +386,13 @@ function App() {
 							/>
 							<button
 								type="button"
-								onClick={() =>
+								onClick={() => {
 									setSubmittedRead({
-										address: (readAddress || address) as `0x${string}`,
+										address: (readAddress || address) as Address,
 										key: readKey,
-									})
-								}
+									});
+									refetchTextRecord();
+								}}
 							>
 								Read
 							</button>
@@ -335,17 +414,50 @@ function App() {
 						<p>
 							Your config is automatically available at this ENS name via
 							wildcard resolution. Any records you set above can be looked up by
-							other apps using this name.
+							other apps using this name through CCIP-Read.
 						</p>
 					</div>
 				</div>
 
-				<div style={{ flex: "0 0 300px" }}>
+				<div style={{ flex: "1 1 300px" }}>
+					<h2>ENS Text Lookup (Mainnet)</h2>
+					<p style={{ fontSize: "0.9rem", color: "#888" }}>
+						Use viem's getEnsText to resolve any ENS name's text records
+					</p>
+					<div>
+						<input
+							placeholder="ENS name (e.g. vitalik.eth)"
+							value={ensName}
+							onChange={(e) => setEnsName(e.target.value)}
+							style={{ width: "100%" }}
+						/>
+						<input
+							placeholder="key (e.g. url, avatar, com.twitter)"
+							value={ensKey}
+							onChange={(e) => setEnsKey(e.target.value)}
+							style={{ width: "100%" }}
+						/>
+						<button
+							type="button"
+							onClick={handleEnsLookup}
+							disabled={ensLoading || !ensName}
+						>
+							{ensLoading ? "Loading..." : "Lookup"}
+						</button>
+					</div>
+					{ensResult !== null && (
+						<p>
+							<strong>Result:</strong> {ensResult || "(empty)"}
+						</p>
+					)}
+					{ensError && <p style={{ color: "red" }}>Error: {ensError}</p>}
+
+					<hr />
+
 					<h2>Dev</h2>
 					<p>
-						Contract address on {chainId === sepolia.id ? "Sepolia" : "Mainnet"}
-						. Your app can integrate ETH config by reading and writing records
-						to the resolver contract.
+						Contract addresses on testnet. Your app can integrate ETH config by
+						reading and writing records to the resolver contract.
 					</p>
 					<p>
 						<strong>GitHub:</strong>{" "}
@@ -365,21 +477,35 @@ function App() {
 							client
 						</a>
 					</p>
+					{l1ConfigResolver && (
+						<p>
+							<strong>L1 Resolver (Sepolia):</strong>{" "}
+							<a
+								href={`https://sepolia.etherscan.io/address/${l1ConfigResolver}`}
+								target="_blank"
+								rel="noopener noreferrer"
+							>
+								{l1ConfigResolver}
+							</a>
+						</p>
+					)}
+					{l2ConfigResolver && (
+						<p>
+							<strong>L2 Resolver (Base Sepolia):</strong>{" "}
+							<a
+								href={`https://sepolia.basescan.org/address/${l2ConfigResolver}`}
+								target="_blank"
+								rel="noopener noreferrer"
+							>
+								{l2ConfigResolver}
+							</a>
+						</p>
+					)}
 					<p>
-						<strong>Resolver:</strong>{" "}
-						<a
-							href={`https://${chainId === sepolia.id ? "sepolia." : ""}etherscan.io/address/${resolver}`}
-							target="_blank"
-							rel="noopener noreferrer"
-						>
-							{resolver}
-						</a>
-					</p>
-					<p>
-						<strong>ABI:</strong>
+						<strong>ConfigResolver ABI:</strong>
 					</p>
 					<pre style={{ overflow: "auto", fontSize: "12px" }}>
-						{JSON.stringify(resolverAbi, null, 2)}
+						{JSON.stringify(configResolverAbi, null, 2)}
 					</pre>
 				</div>
 			</div>
