@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { type Address, createPublicClient, http } from "viem";
 import { normalize } from "viem/ens";
 import {
@@ -13,6 +13,54 @@ import {
 	useWriteContract,
 } from "wagmi";
 import { baseSepolia, sepolia } from "wagmi/chains";
+
+// Resolve prefix for URL fetching
+const RESOLVE_PREFIX = "resolve:";
+
+// Hook to resolve text records that start with "resolve:"
+function useResolvedText(textValue: string | null | undefined) {
+	const resolveUrl = useMemo(() => {
+		if (!textValue || !textValue.startsWith(RESOLVE_PREFIX)) {
+			return null;
+		}
+		return textValue.slice(RESOLVE_PREFIX.length);
+	}, [textValue]);
+
+	const {
+		data: result,
+		isLoading,
+		error,
+	} = useQuery({
+		queryKey: ["resolveText", resolveUrl],
+		queryFn: async () => {
+			if (!resolveUrl) return { text: null, requiresAuth: false };
+			const response = await fetch(resolveUrl);
+			if (!response.ok) {
+				// 401/403 means auth required - don't treat as error, just note it
+				if (response.status === 401 || response.status === 403) {
+					return { text: null, requiresAuth: true };
+				}
+				throw new Error(`Failed to fetch: ${response.status}`);
+			}
+			return { text: await response.text(), requiresAuth: false };
+		},
+		enabled: !!resolveUrl,
+		staleTime: 1000 * 60 * 5, // Cache for 5 minutes
+	});
+
+	const resolvedText = result?.text ?? null;
+	const requiresAuth = result?.requiresAuth ?? false;
+
+	return {
+		value: resolveUrl ? resolvedText : textValue,
+		isResolving: !!resolveUrl && isLoading,
+		resolveError: error,
+		isResolved: !!resolveUrl && !isLoading && !error && !requiresAuth,
+		requiresAuth,
+		originalValue: textValue,
+		resolveUrl,
+	};
+}
 
 // Config from environment
 const PARENT_NAME = import.meta.env.VITE_PARENT_NAME as string;
@@ -130,6 +178,9 @@ function App() {
 	const [ensLoading, setEnsLoading] = useState(false);
 	const [ensError, setEnsError] = useState<string | null>(null);
 
+	// Resolve ENS result if it starts with "resolve:"
+	const resolvedEnsResult = useResolvedText(ensResult);
+
 	// Get L1ConfigResolver address from ENS
 	const { data: l1ConfigResolver, isLoading: isLoadingResolver } = useQuery({
 		queryKey: ["ensResolver", PARENT_NAME],
@@ -196,6 +247,9 @@ function App() {
 		chainId: baseSepolia.id,
 		query: { enabled: !!readNode && !!submittedRead && !!l2ConfigResolver },
 	});
+
+	// Resolve text record if it starts with "resolve:"
+	const resolvedTextRecord = useResolvedText(textRecord);
 
 	// Set text on L2 ConfigResolver
 	const {
@@ -398,9 +452,38 @@ function App() {
 							</button>
 						</div>
 						{submittedRead && (
-							<p>
-								<strong>{submittedRead.key}:</strong> {textRecord || "(empty)"}
-							</p>
+							<div>
+								<p>
+									<strong>{submittedRead.key}:</strong>{" "}
+									{resolvedTextRecord.isResolving
+										? "Resolving..."
+										: resolvedTextRecord.requiresAuth
+											? "(requires authentication)"
+											: resolvedTextRecord.value || "(empty)"}
+								</p>
+								{resolvedTextRecord.resolveUrl && (
+									<p style={{ fontSize: "0.8rem", color: "#888" }}>
+										{resolvedTextRecord.isResolving
+											? "Fetching from: "
+											: resolvedTextRecord.requiresAuth
+												? "URL: "
+												: "Resolved from: "}
+										<a
+											href={resolvedTextRecord.resolveUrl}
+											target="_blank"
+											rel="noopener noreferrer"
+										>
+											{resolvedTextRecord.resolveUrl}
+										</a>
+									</p>
+								)}
+								{resolvedTextRecord.resolveError && (
+									<p style={{ fontSize: "0.8rem", color: "#f59e0b" }}>
+										Failed to resolve URL:{" "}
+										{(resolvedTextRecord.resolveError as Error).message}
+									</p>
+								)}
+							</div>
 						)}
 					</div>
 
@@ -446,9 +529,38 @@ function App() {
 						</button>
 					</div>
 					{ensResult !== null && (
-						<p>
-							<strong>Result:</strong> {ensResult || "(empty)"}
-						</p>
+						<div>
+							<p>
+								<strong>Result:</strong>{" "}
+								{resolvedEnsResult.isResolving
+									? "Resolving..."
+									: resolvedEnsResult.requiresAuth
+										? "(requires authentication)"
+										: resolvedEnsResult.value || "(empty)"}
+							</p>
+							{resolvedEnsResult.resolveUrl && (
+								<p style={{ fontSize: "0.8rem", color: "#888" }}>
+									{resolvedEnsResult.isResolving
+										? "Fetching from: "
+										: resolvedEnsResult.requiresAuth
+											? "URL: "
+											: "Resolved from: "}
+									<a
+										href={resolvedEnsResult.resolveUrl}
+										target="_blank"
+										rel="noopener noreferrer"
+									>
+										{resolvedEnsResult.resolveUrl}
+									</a>
+								</p>
+							)}
+							{resolvedEnsResult.resolveError && (
+								<p style={{ fontSize: "0.8rem", color: "#f59e0b" }}>
+									Failed to resolve URL:{" "}
+									{(resolvedEnsResult.resolveError as Error).message}
+								</p>
+							)}
+						</div>
 					)}
 					{ensError && <p style={{ color: "red" }}>Error: {ensError}</p>}
 
